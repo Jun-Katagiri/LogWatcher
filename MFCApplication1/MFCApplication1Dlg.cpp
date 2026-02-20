@@ -78,6 +78,7 @@ BEGIN_MESSAGE_MAP(CMFCApplication1Dlg, CDialogEx)
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
 	ON_WM_DESTROY()
+	ON_WM_TIMER()
 	ON_EN_CHANGE(IDC_EDIT_LOG, &CMFCApplication1Dlg::OnEnChangeEditLog)
 	ON_BN_CLICKED(IDOK, &CMFCApplication1Dlg::OnBnClickedOk)
 	ON_BN_CLICKED(IDC_BTN_START, &CMFCApplication1Dlg::OnBnClickedBtnStart)
@@ -209,6 +210,8 @@ void CMFCApplication1Dlg::OnBnClickedBtnStart()
 		// IDC_STATIC_PATH コントロールにファイルパスを表示するコードを追加します。
 		SetDlgItemText(IDC_STATIC_PATH, m_folderPath + "\\" + m_fileName);
 		m_lastReadPos = 0;
+		m_logUpdatePending = false;
+		KillTimer(LOG_DEBOUNCE_TIMER_ID);
 		m_editLog.SetWindowTextW(L"");
 
 		// スレッド開始
@@ -224,6 +227,8 @@ void CMFCApplication1Dlg::OnBnClickedBtnStart()
 void CMFCApplication1Dlg::OnBnClickedBtnStop()
 {
 	m_stopRequested = true;
+	KillTimer(LOG_DEBOUNCE_TIMER_ID);
+	m_logUpdatePending = false;
 
 	const HANDLE hDir = m_hDir.load();
 	if (hDir != INVALID_HANDLE_VALUE) {
@@ -243,6 +248,7 @@ void CMFCApplication1Dlg::OnBnClickedBtnStop()
 
 void CMFCApplication1Dlg::OnDestroy()
 {
+	KillTimer(LOG_DEBOUNCE_TIMER_ID);
 	OnBnClickedBtnStop();
 	CDialogEx::OnDestroy();
 }
@@ -347,17 +353,38 @@ static std::wstring Utf8ToWString(const std::string& s) {
 // ログ変更ハンドラ
 LRESULT CMFCApplication1Dlg::OnLogChanged(WPARAM, LPARAM)
 {
+	// 変更通知を200ms単位でまとめる（最後の通知から200ms後に1回だけ読む）
+	m_logUpdatePending = true;
+	SetTimer(LOG_DEBOUNCE_TIMER_ID, LOG_DEBOUNCE_INTERVAL_MS, nullptr);
+	return 0;
+}
+
+void CMFCApplication1Dlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == LOG_DEBOUNCE_TIMER_ID) {
+		KillTimer(LOG_DEBOUNCE_TIMER_ID);
+		if (m_logUpdatePending) {
+			m_logUpdatePending = false;
+			ApplyLogChanges();
+		}
+		return;
+	}
+	CDialogEx::OnTimer(nIDEvent);
+}
+
+void CMFCApplication1Dlg::ApplyLogChanges()
+{
 	std::ifstream ifs((LPCWSTR)m_filePath, std::ios::binary);
 	if (!ifs) {
 		TRACE(L"[LogChanged] Failed to open file: %s\n", (LPCWSTR)m_filePath);
-		return 0;
+		return;
 	}
 
 	ifs.seekg(0, std::ios::end);
 	const std::streamoff endPos = ifs.tellg();
 	if (endPos < 0) {
 		TRACE(L"[LogChanged] Failed to get file size: %s\n", (LPCWSTR)m_filePath);
-		return 0;
+		return;
 	}
 	const ULONGLONG fileSize = static_cast<ULONGLONG>(endPos);
 
@@ -368,13 +395,13 @@ LRESULT CMFCApplication1Dlg::OnLogChanged(WPARAM, LPARAM)
 	}
 
 	if (fileSize == m_lastReadPos) {
-		return 0;
+		return;
 	}
 
 	ifs.seekg(static_cast<std::streamoff>(m_lastReadPos), std::ios::beg);
 	if (!ifs) {
 		TRACE(L"[LogChanged] Failed to seek file: %s pos=%llu\n", (LPCWSTR)m_filePath, m_lastReadPos);
-		return 0;
+		return;
 	}
 
 	const ULONGLONG delta = fileSize - m_lastReadPos;
@@ -382,7 +409,7 @@ LRESULT CMFCApplication1Dlg::OnLogChanged(WPARAM, LPARAM)
 	ifs.read(&bytes[0], static_cast<std::streamsize>(bytes.size()));
 	const std::streamsize readBytes = ifs.gcount();
 	if (readBytes <= 0) {
-		return 0;
+		return;
 	}
 	bytes.resize(static_cast<size_t>(readBytes));
 	m_lastReadPos += static_cast<ULONGLONG>(readBytes);
@@ -401,5 +428,4 @@ LRESULT CMFCApplication1Dlg::OnLogChanged(WPARAM, LPARAM)
 
 	m_editLog.SetSel(-1, -1);
 	m_editLog.ReplaceSel(w.c_str());
-	return 0;
 }

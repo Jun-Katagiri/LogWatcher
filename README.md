@@ -1,62 +1,55 @@
 # MFCApplication1（ログファイル監視ビューア）
 
-Windows（MFC）のダイアログアプリです。選択したログファイルが更新されたことを検知し、内容を画面の `IDC_EDIT_LOG` に表示します。
+Windows MFC のダイアログアプリです。  
+指定したログファイルの更新を監視し、`IDC_EDIT_LOG` に内容を表示します。
 
-## 機能
+## 主な機能
 
-- ファイル選択（開始ボタン）
-- 監視対象ファイルのあるフォルダーを `ReadDirectoryChangesW` で監視
-- 監視対象ファイルの変更を検知したら、`WM_LOG_CHANGED` を `PostMessage` でUIスレッドへ通知
-- `OnLogChanged` でファイルを読み直して `m_editLog` に表示
-- 停止ボタンで監視停止（ハンドルを閉じて `ReadDirectoryChangesW` を解除）
+- ファイル選択ダイアログから監視対象ファイルを選択
+- `ReadDirectoryChangesW` によるフォルダー監視
+- 変更通知は `WM_LOG_CHANGED` で UI スレッドへ転送
+- UI 更新は 200ms デバウンス（通知連打を集約）
+- ログ表示は全読みではなく追記分のみ反映（`m_lastReadPos` 利用）
+- ログローテーション / truncate 検知時は表示をリセットして先頭から再読込
+- 停止時は監視スレッド終了待機まで実施
 
-## 画面（リソース）
+## 画面
 
-- `IDC_EDIT_LOG`: ログ表示用の `EDIT`（複数行）
-- `IDC_STATIC_PATH`: 選択したパス表示
-- `IDC_BTN_START`: 開始
-- `IDC_BTN_STOP`: 停止
+- `IDC_EDIT_LOG`: ログ表示用 `EDIT`（複数行）
+- `IDC_STATIC_PATH`: 選択中のファイルパス表示
+- `IDC_BTN_START`: 監視開始
+- `IDC_BTN_STOP`: 監視停止
 
-## 動作要件
+## 動作概要
 
-- Windows 10/11
-- Visual Studio（C++/MFC がインストール済み）
-- MFC（ダイアログベース）
+1. `Start` でファイルを選択
+2. ファイルの親フォルダーを監視開始
+3. 変更通知を受けたら `WM_LOG_CHANGED` をポスト
+4. `OnLogChanged` はタイマー（200ms）をセットして更新要求を保留
+5. `OnTimer` で `ApplyLogChanges` を 1 回実行し、追記分だけ `IDC_EDIT_LOG` に追加
 
-## ビルド方法
-
-1. Visual Studio でソリューションを開く
-2. 構成（`Debug` / `Release`）とプラットフォーム（`x64` など）を選択
-3. ビルドして実行
-
-## 使い方
-
-1. アプリ起動
-2. **開始**を押して監視したいファイルを選択
-3. 選択したファイルが更新されると、内容が `IDC_EDIT_LOG` に反映されます
-4. **停止**で監視を止めます
-
-## 文字コードについて
-
-`OnLogChanged` はバイナリで読み込み、UTF-8（BOMあり/なし）を想定して `MultiByteToWideChar(CP_UTF8, ...)` で `std::wstring` に変換します。
-
-- UTF-8 BOM（`EF BB BF`）がある場合はスキップします
-- UTF-8 以外（Shift-JIS等）のファイルを読む場合は、変換処理の拡張が必要です
-
-## 実装メモ
+## スレッドと停止処理
 
 - 監視スレッド: `CMFCApplication1Dlg::WatchThreadProc`
-- UI通知: `WM_LOG_CHANGED`（`WM_APP + 10`）
-- UI更新: `CMFCApplication1Dlg::OnLogChanged`
-- `m_editLog` は `DoDataExchange` で `DDX_Control(pDX, IDC_EDIT_LOG, m_editLog)` により紐づけています
+- 停止要求: `m_stopRequested = true` + `CancelIoEx(hDir, nullptr)`
+- ハンドルクローズ: 監視スレッド側のみで `CloseHandle(hDir)` を実行
+- UI 側: スレッドハンドルを `WaitForSingleObject(..., INFINITE)` で終了待機
+- ダイアログ終了時（`OnDestroy` / `OnOK`）も停止処理を通す
 
-## 既知の注意点 / 今後の改善候補
+## 文字コード
 
-- 「開始」を複数回押した場合の二重起動ガード
-- 大きいファイルの全読み込みではなく追記分のみ反映（`m_lastReadPos` の活用）
-- 変更通知が多い場合のデバウンス（一定時間まとめて更新）
-- エラーハンドリング（ファイルオープン失敗、権限不足など）
+- 対応: UTF-8（BOM あり/なし）
+- 変換: `MultiByteToWideChar(CP_UTF8, ...)`
+- 非対応: Shift-JIS / EUC-JP / UTF-16 など（現状）
 
-## リポジトリ
+## 既知の仕様
 
-- `.gitignore` は Visual Studio / C++ の生成物（`.vs/`, `x64/`, `*.pdb` など）を除外する設定を含みます
+- `m_lastReadPos` はメモリ上のみで保持（永続化なし）
+- アプリ再起動時は読み取り位置がリセットされる
+
+## 主要コード位置
+
+- 監視スレッド: `MFCApplication1/MFCApplication1Dlg.cpp` の `WatchThreadProc`
+- 通知受信: `MFCApplication1/MFCApplication1Dlg.cpp` の `OnLogChanged`
+- デバウンス: `MFCApplication1/MFCApplication1Dlg.cpp` の `OnTimer`
+- 差分読込: `MFCApplication1/MFCApplication1Dlg.cpp` の `ApplyLogChanges`
