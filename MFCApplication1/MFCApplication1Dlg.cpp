@@ -208,6 +208,8 @@ void CMFCApplication1Dlg::OnBnClickedBtnStart()
 
 		// IDC_STATIC_PATH コントロールにファイルパスを表示するコードを追加します。
 		SetDlgItemText(IDC_STATIC_PATH, m_folderPath + "\\" + m_fileName);
+		m_lastReadPos = 0;
+		m_editLog.SetWindowTextW(L"");
 
 		// スレッド開始
 		m_stopRequested = false;
@@ -351,11 +353,43 @@ LRESULT CMFCApplication1Dlg::OnLogChanged(WPARAM, LPARAM)
 		return 0;
 	}
 
-	std::string bytes((std::istreambuf_iterator<char>(ifs)),
-		std::istreambuf_iterator<char>());
+	ifs.seekg(0, std::ios::end);
+	const std::streamoff endPos = ifs.tellg();
+	if (endPos < 0) {
+		TRACE(L"[LogChanged] Failed to get file size: %s\n", (LPCWSTR)m_filePath);
+		return 0;
+	}
+	const ULONGLONG fileSize = static_cast<ULONGLONG>(endPos);
+
+	// ログローテーション/truncate を検知したら表示をリセットして先頭から読む
+	if (fileSize < m_lastReadPos) {
+		m_lastReadPos = 0;
+		m_editLog.SetWindowTextW(L"");
+	}
+
+	if (fileSize == m_lastReadPos) {
+		return 0;
+	}
+
+	ifs.seekg(static_cast<std::streamoff>(m_lastReadPos), std::ios::beg);
+	if (!ifs) {
+		TRACE(L"[LogChanged] Failed to seek file: %s pos=%llu\n", (LPCWSTR)m_filePath, m_lastReadPos);
+		return 0;
+	}
+
+	const ULONGLONG delta = fileSize - m_lastReadPos;
+	std::string bytes(static_cast<size_t>(delta), '\0');
+	ifs.read(&bytes[0], static_cast<std::streamsize>(bytes.size()));
+	const std::streamsize readBytes = ifs.gcount();
+	if (readBytes <= 0) {
+		return 0;
+	}
+	bytes.resize(static_cast<size_t>(readBytes));
+	m_lastReadPos += static_cast<ULONGLONG>(readBytes);
 
 	// BOM付きUTF-8ならBOMをスキップ
-	if (bytes.size() >= 3 &&
+	if (m_lastReadPos == static_cast<ULONGLONG>(readBytes) &&
+		bytes.size() >= 3 &&
 		(unsigned char)bytes[0] == 0xEF &&
 		(unsigned char)bytes[1] == 0xBB &&
 		(unsigned char)bytes[2] == 0xBF)
@@ -365,8 +399,7 @@ LRESULT CMFCApplication1Dlg::OnLogChanged(WPARAM, LPARAM)
 
 	std::wstring w = Utf8ToWString(bytes);
 
-	m_editLog.SetWindowTextW(w.c_str());
 	m_editLog.SetSel(-1, -1);
-	m_editLog.ReplaceSel(L"");
+	m_editLog.ReplaceSel(w.c_str());
 	return 0;
 }

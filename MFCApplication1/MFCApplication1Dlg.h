@@ -6,6 +6,8 @@
 #include <atomic>
 
 constexpr UINT WM_LOG_CHANGED = WM_APP + 10;
+constexpr UINT_PTR LOG_DEBOUNCE_TIMER_ID = 1;
+constexpr UINT LOG_DEBOUNCE_INTERVAL_MS = 200;
 
 
 // CMFCApplication1Dlg ダイアログ
@@ -34,11 +36,13 @@ public:
 		std::atomic<bool> m_stopRequested{ false };
 		CWinThread* m_watchThread = nullptr;
 		std::atomic<HANDLE> m_hDir{ INVALID_HANDLE_VALUE };
+		bool m_logUpdatePending = false;
 
 
 	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV サポート
 
 	static UINT WatchThreadProc(LPVOID pParam);
+	void ApplyLogChanges();
 
 	afx_msg LRESULT OnLogChanged(WPARAM wParam, LPARAM lParam);
 
@@ -58,4 +62,5 @@ public:
 	afx_msg void OnBnClickedBtnStart();
 	afx_msg void OnBnClickedBtnStop();
 	afx_msg void OnDestroy();
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
 };
