@@ -3,6 +3,13 @@
 Windows MFC のダイアログアプリです。  
 指定したログファイルの更新を監視し、`IDC_EDIT_LOG` に内容を表示します。
 
+## 使い方
+
+- `Start` を押して監視するログファイルを選択
+- ログに追記があると `IDC_EDIT_LOG` に追記表示
+- `Stop` で監視停止（スレッド終了待機まで実施）
+- ログローテーション / truncate 時は表示をリセットして先頭から再読込
+
 ## 主な機能
 
 - ファイル選択ダイアログから監視対象ファイルを選択
@@ -32,6 +39,7 @@ Windows MFC のダイアログアプリです。
 
 - 監視スレッド: `CMFCApplication1Dlg::WatchThreadProc`
 - 停止要求: `m_stopRequested = true` + `CancelIoEx(hDir, nullptr)`
+- `CancelIoEx` の挙動は環境差が出る可能性があるため、停止不能ケースに備えて `overlapped I/O + event` 方式への拡張も検討
 - ハンドルクローズ: 監視スレッド側のみで `CloseHandle(hDir)` を実行
 - UI 側: スレッドハンドルを `WaitForSingleObject(..., INFINITE)` で終了待機
 - ダイアログ終了時（`OnDestroy` / `OnOK`）も停止処理を通す
@@ -46,6 +54,12 @@ Windows MFC のダイアログアプリです。
 
 - `m_lastReadPos` はメモリ上のみで保持（永続化なし）
 - アプリ再起動時は読み取り位置がリセットされる
+- ログ表示件数（最大行数 / 最大文字数）の上限管理は未実装（今後の課題）
+
+## 設計上の狙い
+
+- UI フリーズ回避のため、監視処理と表示更新を分離
+- 通知連打を想定し、デバウンスで更新頻度を制御
 
 ## 主要コード位置
 
