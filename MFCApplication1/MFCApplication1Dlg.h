@@ -33,7 +33,7 @@ public:
 
 		std::atomic<bool> m_stopRequested{ false };
 		CWinThread* m_watchThread = nullptr;
-		HANDLE m_hDir = INVALID_HANDLE_VALUE;
+		std::atomic<HANDLE> m_hDir{ INVALID_HANDLE_VALUE };
 
 
 	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV サポート
@@ -57,4 +57,5 @@ public:
 	afx_msg void OnBnClickedOk();
 	afx_msg void OnBnClickedBtnStart();
 	afx_msg void OnBnClickedBtnStop();
+	afx_msg void OnDestroy();
 };

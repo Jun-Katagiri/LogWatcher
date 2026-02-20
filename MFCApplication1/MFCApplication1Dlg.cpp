@@ -77,6 +77,7 @@ BEGIN_MESSAGE_MAP(CMFCApplication1Dlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
+	ON_WM_DESTROY()
 	ON_EN_CHANGE(IDC_EDIT_LOG, &CMFCApplication1Dlg::OnEnChangeEditLog)
 	ON_BN_CLICKED(IDOK, &CMFCApplication1Dlg::OnBnClickedOk)
 	ON_BN_CLICKED(IDC_BTN_START, &CMFCApplication1Dlg::OnBnClickedBtnStart)
@@ -183,7 +184,7 @@ void CMFCApplication1Dlg::OnEnChangeEditLog()
 
 void CMFCApplication1Dlg::OnBnClickedOk()
 {
-	// TODO: ここにコントロール通知ハンドラー コードを追加します。
+	OnBnClickedBtnStop();
 	CDialogEx::OnOK();
 }
 
@@ -211,6 +212,9 @@ void CMFCApplication1Dlg::OnBnClickedBtnStart()
 		// スレッド開始
 		m_stopRequested = false;
 		m_watchThread = AfxBeginThread(&CMFCApplication1Dlg::WatchThreadProc, this);
+		if (m_watchThread != nullptr) {
+			m_watchThread->m_bAutoDelete = FALSE;
+		}
 
 	}
 }
@@ -219,11 +223,26 @@ void CMFCApplication1Dlg::OnBnClickedBtnStop()
 {
 	m_stopRequested = true;
 
-	if (m_hDir != INVALID_HANDLE_VALUE) {
-		// ディレクトリのハンドルを閉じると、ReadDirectoryChangesW が失敗してスレッドが終了する
-		CloseHandle(m_hDir);
-		m_hDir = INVALID_HANDLE_VALUE;
+	const HANDLE hDir = m_hDir.load();
+	if (hDir != INVALID_HANDLE_VALUE) {
+		// 停止要求のみを行い、ハンドルは監視スレッド側で閉じる
+		CancelIoEx(hDir, nullptr);
 	}
+
+	if (m_watchThread != nullptr) {
+		const DWORD waitResult = WaitForSingleObject(m_watchThread->m_hThread, INFINITE);
+		if (waitResult != WAIT_OBJECT_0) {
+			TRACE(L"[Watch] Stop wait failed. result=%lu\n", waitResult);
+		}
+		delete m_watchThread;
+		m_watchThread = nullptr;
+	}
+}
+
+void CMFCApplication1Dlg::OnDestroy()
+{
+	OnBnClickedBtnStop();
+	CDialogEx::OnDestroy();
 }
 
 
@@ -248,7 +267,7 @@ UINT CMFCApplication1Dlg::WatchThreadProc(LPVOID pParam)
 		return 0;
 	}
 
-	self->m_hDir = hDir;
+	self->m_hDir.store(hDir);
 
 	TRACE(L"[Watch] Start watching folder: %s\n", (LPCWSTR)self->m_folderPath);
 
@@ -304,10 +323,8 @@ UINT CMFCApplication1Dlg::WatchThreadProc(LPVOID pParam)
 
 	}
 
-	if (self->m_hDir != INVALID_HANDLE_VALUE) {
-		CloseHandle(hDir);
-		self->m_hDir = INVALID_HANDLE_VALUE;
-	}
+	CloseHandle(hDir);
+	self->m_hDir.store(INVALID_HANDLE_VALUE);
 
 	TRACE(L"[Watch] Stopped.\n");
 
