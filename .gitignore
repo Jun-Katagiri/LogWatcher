@@ -1,0 +1,50 @@
+# Visual Studio (per-user / per-machine)
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual C++ database files
+*.VC.db
+*.VC.VC.opendb
+ipch/
+
+# Build output (common)
+Debug/
+Release/
+x64/
+x86/
+ARM/
+ARM64/
+*/Debug/
+*/Release/
+*/x64/
+*/x86/
+*/ARM/
+*/ARM64/
+
+# MSBuild / compiler intermediate
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.iobj
+*.ipdb
+*.pch
+*.tlog
+*.log
+*.lastbuildstate
+
+# Binaries
+*.exe
+*.dll
+*.lib
+*.exp
+
+# MFC / Resource build artifacts
+*.aps
+*.res
+
+# Optional: NuGet packages (if you use packages.config)
+packages/
